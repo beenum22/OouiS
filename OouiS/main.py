@@ -7,8 +7,9 @@ __author__ = 'beenum22'
 import logging
 import argparse
 import sys
-from src.ovs_api import OvsApi
+import json
 
+from src.ovs_api import OvsApi
 
 logger = logging.getLogger('OouiS')
 formatter = logging.Formatter(
@@ -38,10 +39,44 @@ class OouiS(object):
         else:
             logger.setLevel(logging.INFO)
 
+    def test_run(self):
+        api = OvsApi(self.args.ip, self.args.port)
+        api.connect_ovs()
+        api.get_dbs()
+        br_list = api.get_bridges()
+        print "-----|Bridges|-----"
+        print "__________________________________________"
+        print "%s" % ' | '.join(map(str, br_list))
+        print "=========================================="
+        print "-----|Ports|-----"
+        for br in br_list:
+            ports = {}
+            print "  ----|%s|----" % br
+            p_list = api.get_br_ports(br)
+            for p in p_list:
+                ports[p] = api.get_port_details(p)
+                print ports[p]
+                print "    - %s" % ports[p]['name']
+                iface_info = api.get_interface_details(ports[p]['interfaces'][1])
+                iface_name = iface_info['name']
+                iface_type = api.get_interface_type(ports[p]['interfaces'][1])
+                print "        --> %s (%s)" % (iface_name, iface_type)
+            print iface_info
+
+            #port_names = [api.get_port_name(p) for p in p_list]
+            #for port in port_names:
+            #    print "    - %s" % port
+        print "=========================================="
+        #print api.get_port_details(p_list[0])
+        #print api.get_interface_details()
+        print json.loads(api.ovs_info)['result']['Controller']
+               
+
     def run(self):
         try:
             print "---Bienvenue! Oui, Je suis OvS en français.---"
             api = OvsApi(self.args.ip, self.args.port)
+            api.connect_ovs()
             api.get_dbs()
             logger.info("OpenvSwitch DBs: %s" % api.dbs)
             # print api.monitor_ovs()
@@ -56,9 +91,8 @@ class OouiS(object):
             sample_port = api.get_port_details(p_list[0])
             logger.info("Interfaces in Port '%s': %s" % (
                 p_list[0], sample_port['interfaces'][1]))
-            exit()
-            logger.info("Interface: %s : %s" % (
-                p_list[0]['interfaces'][1], api.get_interface_details(p_list[0]['interfaces'][1])))
+            #logger.info("Interface: %s : %s" % (
+            #    p_list[0]['interfaces'][1], api.get_interface_details(p_list[0]['interfaces'][1])))
         except KeyError:
             logger.info("Oops!. Some key went wild!")
         except KeyboardInterrupt:
@@ -76,7 +110,8 @@ class OouiS(object):
 
 def main():
     app = OouiS()
-    app.run()
+    #app.run()
+    app.test_run()
 
 
 if __name__ == '__main__':

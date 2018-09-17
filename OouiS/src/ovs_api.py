@@ -5,23 +5,18 @@ import logging
 import uuid
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('OouiS')
 
 
 class OvsApi(object):
     """Simple API to interact with OVSDB"""
 
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, rpc_buffer=9126):
         self.ip = ip
         self.port = port
+        self.rpc_buffer = rpc_buffer
         self.dbs = None
-        try:
-            self.connect_ovs()
-        except Exception as err:
-            logger.error("Failed to connect to the OvS server")
-            logger.debug(err)
-            logger.error("Exiting...")
-            sys.exit(1)
+        self.ovs_info = None
 
     def connect_ovs(self):
         try:
@@ -31,6 +26,7 @@ class OvsApi(object):
             self.soc.connect((self.ip, self.port))
             logger.info("Connected to the OvS Server.")
         except socket.error as err:
+            logger.error("Failed to connect to the OvS server")
             raise err
 
     def disconnect_ovs(self):
@@ -43,7 +39,7 @@ class OvsApi(object):
         except socket.error as err:
             raise err
 
-    def send_rpc(self, call):
+    def send_rpc(self, call, buffer_size=9126):
         try:
             logger.debug("Send the JSON RPC request: %s" % call)
             self.soc.send(json.dumps(call))
@@ -55,18 +51,28 @@ class OvsApi(object):
                 if not data:
                     break
             '''
-            resp = self.soc.recv(8192).decode('utf8')
+            resp = self.soc.recv(buffer_size).decode('utf8')
+            self.validate_rpc_response(resp)
             logger.debug("Received the JSON RPC response: %s" % resp)
             #logger.debug("Received the JSON RPC response: %s" % ''.join(data_list))
             return resp
         except socket.error as err:
             raise err
+        except Exception as err:
+            raise
+
+    def validate_rpc_response(self, response):
+        try:
+            json.loads(response)
+        except ValueError as err:
+            logger.error("Invalid JSON RPC response")
+            raise Exception("RPC response receive buffer full. Increase the buffer size.")
 
     def get_schema(self):
         get_schema = {"method": "get_schema",
                       "params": ["Open_vSwitch"], "id": 0}
         try:
-            resp = self.send_rpc(get_schema)
+            resp = self.send_rpc(get_schema, buffer_size=self.rpc_buffer)
             return resp
         except Exception as err:
             logger.error("Error occurred sending an RPC call.")
@@ -115,7 +121,7 @@ class OvsApi(object):
                        }]
         }
         try:
-            resp = self.send_rpc(monitor_json)
+            resp = self.send_rpc(monitor_json, buffer_size=self.rpc_buffer)
             return resp
         except Exception as err:
             logger.error("Error occurred sending an RPC call.")
@@ -126,7 +132,7 @@ class OvsApi(object):
     def get_dbs(self):
         try:
             list_dbs_query = {"method": "list_dbs", "params": [], "id": 0}
-            resp = self.send_rpc(list_dbs_query)
+            resp = self.send_rpc(list_dbs_query, buffer_size=self.rpc_buffer)
             self.dbs = json.loads(resp)['result']
             return self.dbs
         except Exception as err:
@@ -147,8 +153,10 @@ class OvsApi(object):
                             "fake_bridge",
                             "interfaces",
                             "name",
-                            "tag"
-                        ]
+                            "tag",
+                            "status",
+                            "other_config"
+                            ]
                     },
                     "Interface": {
                         "columns": [
@@ -156,12 +164,14 @@ class OvsApi(object):
                             "name",
                             "ofport",
                             "mac_in_use",
-                            "type"
+                            "type",
+                            "options"
                         ]
                     },
                     "Controller": {
                         "columns": [
-
+                            "is_connected",
+                            "target"
                         ]
                     },
                     "Bridge": {
@@ -183,27 +193,33 @@ class OvsApi(object):
             "id": 1
         }
         try:
-            resp = self.send_rpc(info)
-            return resp
+            resp = self.send_rpc(info, buffer_size=self.rpc_buffer)
+            self.ovs_info = resp
+            return json.loads(resp)
         except Exception as err:
-            #logger.error("Failed to fetch the OpenvSwitch topology info.")
+            logger.error("Failed to fetch the OpenvSwitch topology info.")
             raise err
 
     def get_bridges(self):
         try:
             br_list = []
-            data = json.loads(self.get_all_info())['result']['Bridge']
+            if not self.ovs_info:
+                self.get_all_info()
+            data = json.loads(self.ovs_info)['result']['Bridge']
             for br in data.keys():
                 br_list.append(data[br]['initial']['name'])
             return br_list
         except Exception as err:
             logger.debug(err)
             logger.error("Failed to fetch the list of bridges.")
+            raise err
 
     def get_br_ports(self, bridge):
         try:
             ports_list = []
-            data = json.loads(self.get_all_info())['result']['Bridge']
+            if not self.ovs_info:
+                self.get_all_info()
+            data = json.loads(self.ovs_info)['result']['Bridge']
             br_uuid = data.keys()
             for br in br_uuid:
                 if data[br]['initial']['name'] == bridge:
@@ -223,21 +239,34 @@ class OvsApi(object):
 
     def get_port_details(self, port_uuid):
         try:
-            data = json.loads(self.get_all_info())['result']['Port']
+            if not self.ovs_info:
+                self.get_all_info()
+            data = json.loads(self.ovs_info)['result']['Port']
             return data[port_uuid]['initial']
         except KeyError as err:
             logger.debug(KeyError(err))
             logger.error("Failed to fetch the port '%s' info." % port_uuid)
             raise
 
+    def get_port_name(self, port_uuid):
+        return self.get_port_details(port_uuid)['name']
+
     def get_interface_details(self, iface_uuid):
         try:
-            data = json.loads(self.get_all_info())['result']['Interface']
-            return data[port_uuid]['initial']
+            if not self.ovs_info:
+                self.get_all_info()
+            data = json.loads(self.ovs_info)['result']['Interface']
+            return data[iface_uuid]['initial']
         except KeyError as err:
             logger.debug(KeyError(err))
             logger.error("Failed to fetch the interface '%s' info." % iface_uuid)
             raise
-        except:
-            logger.error("Failed to fetch the interface '%s' info." % iface_uuid)
-            raise
+
+    def get_interface_type(self, iface_uuid):
+        iface_type = None
+        data = self.get_interface_details(iface_uuid)
+        if data.has_key('type'):
+            iface_type = data['type']
+        return iface_type
+
+
