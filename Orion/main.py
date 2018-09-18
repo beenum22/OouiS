@@ -11,7 +11,7 @@ import json
 
 from src.ovs_api import OvsApi
 
-logger = logging.getLogger('OouiS')
+logger = logging.getLogger('Orion')
 formatter = logging.Formatter(
     '[O-oui-S_v' + __version__ + '] %(levelname)s:%(asctime)s:%(message)s')
 console_handler = logging.StreamHandler()
@@ -20,11 +20,11 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 
-class OouiS(object):
+class Orion(object):
 
     def __init__(self):
         parser = argparse.ArgumentParser(
-            description='OouiS', version=__version__)
+            description='Orion', version=__version__)
         required_group = parser.add_argument_group('Required Parameters')
         optional_group = parser.add_argument_group('Optional Parameters')
         required_group.add_argument(
@@ -55,13 +55,13 @@ class OouiS(object):
             p_list = api.get_br_ports(br)
             for p in p_list:
                 ports[p] = api.get_port_details(p)
-                print ports[p]
+                print api.get_port_interfaces(p)
+                #print ports[p]
                 print "    - %s" % ports[p]['name']
                 iface_info = api.get_interface_details(ports[p]['interfaces'][1])
                 iface_name = iface_info['name']
                 iface_type = api.get_interface_type(ports[p]['interfaces'][1])
                 print "        --> %s (%s)" % (iface_name, iface_type)
-            print iface_info
 
             #port_names = [api.get_port_name(p) for p in p_list]
             #for port in port_names:
@@ -69,8 +69,7 @@ class OouiS(object):
         print "=========================================="
         #print api.get_port_details(p_list[0])
         #print api.get_interface_details()
-        print json.loads(api.ovs_info)['result']['Controller']
-               
+        #print json.loads(api.ovs_info)['result']['Controller']
 
     def run(self):
         try:
@@ -109,7 +108,7 @@ class OouiS(object):
 
 
 def main():
-    app = OouiS()
+    app = Orion()
     #app.run()
     app.test_run()
 

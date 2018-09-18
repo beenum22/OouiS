@@ -5,7 +5,7 @@ import logging
 import uuid
 
 
-logger = logging.getLogger('OouiS')
+logger = logging.getLogger('Orion')
 
 
 class OvsApi(object):
@@ -43,18 +43,9 @@ class OvsApi(object):
         try:
             logger.debug("Send the JSON RPC request: %s" % call)
             self.soc.send(json.dumps(call))
-            #data_list = []
-            '''
-            while True:
-                data = client_socket.recv(4096).decode('utf8')
-                data_list.append(data)
-                if not data:
-                    break
-            '''
             resp = self.soc.recv(buffer_size).decode('utf8')
             self.validate_rpc_response(resp)
             logger.debug("Received the JSON RPC response: %s" % resp)
-            #logger.debug("Received the JSON RPC response: %s" % ''.join(data_list))
             return resp
         except socket.error as err:
             raise err
@@ -66,7 +57,7 @@ class OvsApi(object):
             json.loads(response)
         except ValueError as err:
             logger.error("Invalid JSON RPC response")
-            raise Exception("RPC response receive buffer full. Increase the buffer size.")
+            raise Exception("RPC response receive buffer is full. Increase the buffer size.")
 
     def get_schema(self):
         get_schema = {"method": "get_schema",
@@ -75,10 +66,8 @@ class OvsApi(object):
             resp = self.send_rpc(get_schema, buffer_size=self.rpc_buffer)
             return resp
         except Exception as err:
-            logger.error("Error occurred sending an RPC call.")
-            logger.error(err)
-            logger.error("Exiting...")
-            sys.exit(1)
+            logger.error("Failed to fetch the OVS schema.")
+            raise
 
     def monitor_ovs(self):
         monitor_json = {
@@ -136,10 +125,8 @@ class OvsApi(object):
             self.dbs = json.loads(resp)['result']
             return self.dbs
         except Exception as err:
-            pass
-            # logger.error(err)
-            # logger.error("Exiting...")
-            # sys.exit(1)
+            logger.error("Failed to fetch OVS DBs.")
+            raise
 
     def get_all_info(self):
         info = {
@@ -248,6 +235,18 @@ class OvsApi(object):
             logger.error("Failed to fetch the port '%s' info." % port_uuid)
             raise
 
+    def get_port_interfaces(self, port_uuid):
+        try:
+            if not self.ovs_info:
+                self.get_all_info()
+            data = json.loads(self.ovs_info)['result']['Port']
+            # TODO: Below line will break when multiple interfaces in a port
+            ifaces = data[port_uuid]['initial']['interfaces'][1]
+            #ifaces = [self.get_interface_name(i) for i in ifaces]
+            return self.get_interface_name(ifaces)
+        except Exception as err:
+            raise
+
     def get_port_name(self, port_uuid):
         return self.get_port_details(port_uuid)['name']
 
@@ -268,5 +267,8 @@ class OvsApi(object):
         if data.has_key('type'):
             iface_type = data['type']
         return iface_type
+
+    def get_interface_name(self, iface_uuid):
+        return self.get_interface_details(iface_uuid)['name']
 
 
